@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+.pytest_cache/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local database
+inkguard.db
+inkguard.db-shm
+inkguard.db-wal
+
+# Uploaded files
+storage/*
+!storage/.gitkeep
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
