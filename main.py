@@ -202,59 +202,134 @@ CLAIM_PATTERNS=[
  (r"\b(?:cures?|eliminates?|permanently removes?)\b","strong_outcome_claim","Strong outcome claims require approved substantiation."),
  (r"\b(?:in|within)\s+\d+\s+days?\b","time_bound_claim","Time-bound performance claims require approved substantiation.")
 ]
+
+def _sentence_bounds(content, start, end):
+    """Return the sentence-like span containing [start, end), bounded by punctuation/newlines."""
+    left=max(content.rfind(".",0,start),content.rfind("!",0,start),content.rfind("?",0,start),content.rfind("\n",0,start),content.rfind(";",0,start))+1
+    stops=[p for p in (content.find(".",end),content.find("!",end),content.find("?",end),content.find("\n",end),content.find(";",end)) if p!=-1]
+    right=min(stops) if stops else len(content)
+    return left,right
+
+def _number_value(raw):
+    try:
+        from decimal import Decimal
+        m=re.search(r"\d+(?:\.\d+)?",raw)
+        return Decimal(m.group()) if m else None
+    except Exception:
+        return None
+
+def _attribute_anchors(attribute):
+    # Avoid generic measurement words as sole anchors; they create cross-attribute matches.
+    generic={"concentration","percentage","percent","amount","level","content","quantity","value","rate"}
+    tokens=[t.lower() for t in re.findall(r"[a-zA-Z0-9]+",attribute) if t.lower() not in generic]
+    return tokens
+
 def evaluate(db,wid,content):
     out=[]
     terms=db.scalars(select(Terminology).where(Terminology.workspace_id==wid)).all()
     rules=db.scalars(select(BrandRule).where(BrandRule.workspace_id==wid,BrandRule.verified.is_(True))).all()
     facts=db.scalars(select(ApprovedFact).where(ApprovedFact.workspace_id==wid,ApprovedFact.verified.is_(True))).all()
+
     for t in terms:
         hay=content if t.case_sensitive else content.lower()
         needle=t.term if t.case_sensitive else t.term.lower()
-        pos=hay.find(needle)
-        if pos>=0 and t.term_type=="prohibited":
-            out.append(dict(category="terminology",finding_type="terminology_violation",severity="high",
-              detected_text=content[pos:pos+len(t.term)],explanation=f"'{t.term}' is prohibited terminology.",
-              suggestion=f"Replace with '{t.replacement}'." if t.replacement else "Use approved terminology.",
-              confidence=.99,evidence=[{"source_type":"terminology","source_id":t.id,"source_text":t.term}],
-              start_offset=pos,end_offset=pos+len(t.term)))
+        # Find every occurrence, not only the first one.
+        for m in re.finditer(re.escape(needle),hay):
+            if t.term_type=="prohibited":
+                out.append(dict(category="terminology",finding_type="terminology_violation",severity="high",
+                  detected_text=content[m.start():m.end()],explanation=f"'{t.term}' is prohibited terminology.",
+                  suggestion=f"Replace with '{t.replacement}'." if t.replacement else "Use approved terminology.",
+                  confidence=.99,evidence=[{"source_type":"terminology","source_id":t.id,"source_text":t.term}],
+                  start_offset=m.start(),end_offset=m.end()))
+
     for r in rules:
         m=re.search(r"(?:avoid|prohibited)\s*:\s*['\"]?([^.;\n'\"]+)",r.description,re.I)
         if m:
-            phrase=m.group(1).strip(); pos=content.lower().find(phrase.lower())
-            if pos>=0:
+            phrase=m.group(1).strip()
+            for hit in re.finditer(re.escape(phrase),content,re.I):
                 out.append(dict(category=r.category,finding_type="brand_rule_violation",severity=r.severity,
-                  detected_text=content[pos:pos+len(phrase)],explanation=f"{r.title}: {r.description}",
+                  detected_text=content[hit.start():hit.end()],explanation=f"{r.title}: {r.description}",
                   suggestion="Revise this text to comply with the verified brand rule.",confidence=.96,
                   evidence=[{"source_type":"brand_rule","source_id":r.id,"source_text":r.title+": "+r.description}],
-                  start_offset=pos,end_offset=pos+len(phrase)))
+                  start_offset=hit.start(),end_offset=hit.end()))
+
     for pattern,kind,why in CLAIM_PATTERNS:
         for m in re.finditer(pattern,content,re.I):
             out.append(dict(category="claims",finding_type=kind,severity="high",detected_text=m.group(),
               explanation=why+" This is a wording flag, not a determination that the claim is false.",
               suggestion="Verify against approved substantiation or rewrite as a qualified claim.",
               confidence=.78,evidence=[],start_offset=m.start(),end_offset=m.end()))
-    # Numeric mismatch heuristic: only compare numbers in nearby subject/attribute context.
+
+    # Attribute-aware numeric comparison. A number is only compared with a fact when
+    # the same sentence contains a distinctive term from that fact's attribute.
+    # This prevents unrelated numbers elsewhere in a nearby 100-character window
+    # (e.g. "3 days" or "100% safe") from being treated as product concentrations.
+    number_pattern=re.compile(r"\b\d+(?:\.\d+)?\s*(?:%|percent\b)?",re.I)
     for fact in facts:
-        approved=re.findall(r"\d+(?:\.\d+)?",fact.approved_value)
-        if not approved: continue
-        keywords=[x.lower() for x in re.split(r"\W+",fact.subject+" "+fact.attribute) if len(x)>2]
-        for m in re.finditer(r"\b\d+(?:\.\d+)?\s*%?",content):
-            window=content[max(0,m.start()-100):min(len(content),m.end()+100)].lower()
-            if keywords and not any(k in window for k in keywords): continue
-            if m.group().strip().rstrip("%") not in approved:
-                out.append(dict(category="product_fact",finding_type="fact_contradiction",severity="critical",
-                  detected_text=m.group(),explanation=f"Potential mismatch near {fact.subject}/{fact.attribute}. Approved value: {fact.approved_value} {fact.unit or ''}".strip(),
-                  suggestion=f"Verify against approved value: {fact.approved_value} {fact.unit or ''}".strip(),
-                  confidence=.82,evidence=[{"source_type":"approved_fact","source_id":fact.id,
-                  "source_text":f"{fact.subject} — {fact.attribute}: {fact.approved_value} {fact.unit or ''}".strip()}],
-                  start_offset=m.start(),end_offset=m.end()))
-    unique=[]; seen=set()
-    for f in out:
-        key=(f["finding_type"],f["start_offset"],f["end_offset"],f["detected_text"].lower())
-        if key not in seen: seen.add(key); unique.append(f)
-    return unique
+        approved=_number_value(fact.approved_value)
+        if approved is None:
+            continue
+        anchors=_attribute_anchors(fact.attribute)
+        if not anchors:
+            continue
+        for m in number_pattern.finditer(content):
+            left,right=_sentence_bounds(content,m.start(),m.end())
+            sentence=content[left:right].lower()
+            if not any(re.search(r"\b"+re.escape(anchor)+r"\b",sentence) for anchor in anchors):
+                continue
+            raw=m.group()
+            candidate=_number_value(raw)
+            if candidate is None or candidate==approved:
+                continue
+            # If the fact declares a unit, require the candidate to carry that unit.
+            unit=(fact.unit or "").strip().lower()
+            raw_lower=raw.lower()
+            if unit in {"%","percent","percentage"} and not ("%" in raw or "percent" in raw_lower):
+                continue
+            if unit and unit not in {"%","percent","percentage"} and unit not in sentence:
+                continue
+            out.append(dict(category="product_fact",finding_type="fact_contradiction",severity="critical",
+              detected_text=content[m.start():m.end()].strip(),
+              explanation=f"Potential mismatch for {fact.subject}/{fact.attribute}. Approved value: {fact.approved_value} {fact.unit or ''}".strip(),
+              suggestion=f"Verify against approved value: {fact.approved_value} {fact.unit or ''}".strip(),
+              confidence=.90,evidence=[{"source_type":"approved_fact","source_id":fact.id,
+              "source_text":f"{fact.subject} — {fact.attribute}: {fact.approved_value} {fact.unit or ''}".strip()}],
+              start_offset=m.start(),end_offset=m.end()))
+
+    # Merge detectors that flag the exact same text span. Keep one user-facing finding,
+    # retain all evidence, and preserve the additional detector explanation.
+    merged=[]
+    by_span={}
+    severity_rank={"low":1,"medium":2,"high":3,"critical":4}
+    for item in out:
+        key=(item["start_offset"],item["end_offset"],item["detected_text"].strip().lower())
+        if key not in by_span:
+            item=dict(item)
+            item["evidence"]=list(item.get("evidence") or [])
+            by_span[key]=item
+            merged.append(item)
+            continue
+        existing=by_span[key]
+        if item["explanation"] not in existing["explanation"]:
+            existing["explanation"] += " Additional check: "+item["explanation"]
+        for evidence in item.get("evidence") or []:
+            if evidence not in existing["evidence"]:
+                existing["evidence"].append(evidence)
+        if severity_rank.get(item["severity"],0)>severity_rank.get(existing["severity"],0):
+            existing["severity"]=item["severity"]
+        existing["confidence"]=max(existing["confidence"],item["confidence"])
+        # Prefer a concrete terminology replacement over a generic claim rewrite.
+        if item["suggestion"] and existing["suggestion"] in {
+            "Verify against approved substantiation or rewrite as a qualified claim.",
+            "Revise this text to comply with the verified brand rule."
+        }:
+            existing["suggestion"]=item["suggestion"]
+    return merged
+
 def run_audit(db,wid,doc,content):
     items=evaluate(db,wid,content)
+    # Score unique, merged findings only. This is a transparent heuristic, not a
+    # legal/compliance certification; the UI should show the findings alongside it.
     score=max(0,100-sum(WEIGHTS.get(x["severity"],5) for x in items))
     a=Audit(workspace_id=wid,document_id=doc.id,status="completed",score=score,
       summary=f"{len(items)} finding(s). Automated results are advisory; human review is required.")
