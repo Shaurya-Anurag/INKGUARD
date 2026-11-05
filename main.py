@@ -224,6 +224,18 @@ def _attribute_anchors(attribute):
     tokens=[t.lower() for t in re.findall(r"[a-zA-Z0-9]+",attribute) if t.lower() not in generic]
     return tokens
 
+def _subject_anchors(subject):
+    generic={"product","formula","item","variant","the","and","for","of","with"}
+    return [t.lower() for t in re.findall(r"[a-zA-Z0-9]+",subject)
+            if len(t)>1 and t.lower() not in generic]
+
+def _paragraph_bounds(content,start,end):
+    left=content.rfind("\n\n",0,start)
+    left=0 if left < 0 else left+2
+    right=content.find("\n\n",end)
+    right=len(content) if right < 0 else right
+    return left,right
+
 def evaluate(db,wid,content):
     out=[]
     terms=db.scalars(select(Terminology).where(Terminology.workspace_id==wid)).all()
@@ -240,6 +252,13 @@ def evaluate(db,wid,content):
                   detected_text=content[m.start():m.end()],explanation=f"'{t.term}' is prohibited terminology.",
                   suggestion=f"Replace with '{t.replacement}'." if t.replacement else "Use approved terminology.",
                   confidence=.99,evidence=[{"source_type":"terminology","source_id":t.id,"source_text":t.term}],
+                  start_offset=m.start(),end_offset=m.end()))
+            elif t.term_type=="preferred":
+                out.append(dict(category="terminology",finding_type="preferred_term_recommendation",severity="low",
+                  detected_text=content[m.start():m.end()],
+                  explanation=f"'{t.term}' is not the preferred brand term. This is a consistency recommendation, not a compliance violation.",
+                  suggestion=f"Use '{t.replacement}' instead." if t.replacement else "Use the brand's approved preferred terminology.",
+                  confidence=.97,evidence=[{"source_type":"terminology","source_id":t.id,"source_text":t.term}],
                   start_offset=m.start(),end_offset=m.end()))
 
     for r in rules:
@@ -270,31 +289,72 @@ def evaluate(db,wid,content):
         if approved is None:
             continue
         anchors=_attribute_anchors(fact.attribute)
-        if not anchors:
+        subject_anchors=_subject_anchors(fact.subject)
+        if not anchors or not subject_anchors:
             continue
+
         for m in number_pattern.finditer(content):
             left,right=_sentence_bounds(content,m.start(),m.end())
             sentence=content[left:right].lower()
             if not any(re.search(r"\b"+re.escape(anchor)+r"\b",sentence) for anchor in anchors):
                 continue
+
+            pleft,pright=_paragraph_bounds(content,m.start(),m.end())
+            paragraph=content[pleft:pright].lower()
+            subject_found=all(
+                re.search(r"\b"+re.escape(anchor)+r"\b",paragraph)
+                for anchor in subject_anchors
+            )
+
+            # A product heading immediately above the paragraph can establish context.
+            # Do not search arbitrarily far back: that risks borrowing another product's identity.
+            if not subject_found and pleft > 0:
+                previous_separator=content.rfind("\n\n",0,max(0,pleft-2))
+                previous_start=0 if previous_separator < 0 else previous_separator+2
+                previous=content[previous_start:pleft].strip()
+                is_heading=(
+                    bool(previous)
+                    and len(previous)<=120
+                    and not re.search(r"[.!?]",previous)
+                )
+                if is_heading:
+                    previous_lower=previous.lower()
+                    subject_found=all(
+                        re.search(r"\b"+re.escape(anchor)+r"\b",previous_lower)
+                        for anchor in subject_anchors
+                    )
+
+            if not subject_found:
+                continue
+
             raw=m.group()
             candidate=_number_value(raw)
             if candidate is None or candidate==approved:
                 continue
-            # If the fact declares a unit, require the candidate to carry that unit.
+
             unit=(fact.unit or "").strip().lower()
             raw_lower=raw.lower()
             if unit in {"%","percent","percentage"} and not ("%" in raw or "percent" in raw_lower):
                 continue
             if unit and unit not in {"%","percent","percentage"} and unit not in sentence:
                 continue
-            out.append(dict(category="product_fact",finding_type="fact_contradiction",severity="critical",
-              detected_text=content[m.start():m.end()].strip(),
-              explanation=f"Potential mismatch for {fact.subject}/{fact.attribute}. Approved value: {fact.approved_value} {fact.unit or ''}".strip(),
-              suggestion=f"Verify against approved value: {fact.approved_value} {fact.unit or ''}".strip(),
-              confidence=.90,evidence=[{"source_type":"approved_fact","source_id":fact.id,
-              "source_text":f"{fact.subject} — {fact.attribute}: {fact.approved_value} {fact.unit or ''}".strip()}],
-              start_offset=m.start(),end_offset=m.end()))
+
+            out.append(dict(
+                category="product_fact",
+                finding_type="fact_contradiction",
+                severity="critical",
+                detected_text=content[m.start():m.end()].strip(),
+                explanation=f"Potential mismatch for {fact.subject}/{fact.attribute}. Approved value: {fact.approved_value} {fact.unit or ''}".strip(),
+                suggestion=f"Verify against approved value: {fact.approved_value} {fact.unit or ''}".strip(),
+                confidence=.90,
+                evidence=[{
+                    "source_type":"approved_fact",
+                    "source_id":fact.id,
+                    "source_text":f"{fact.subject} — {fact.attribute}: {fact.approved_value} {fact.unit or ''}".strip()
+                }],
+                start_offset=m.start(),
+                end_offset=m.end()
+            ))
 
     # Merge detectors that flag the exact same text span. Keep one user-facing finding,
     # retain all evidence, and preserve the additional detector explanation.
@@ -479,6 +539,9 @@ def get_audit(aid:str,db:Session=Depends(db_session)):
 def add_revision(aid:str,p:RevisionIn,db:Session=Depends(db_session)):
     a=db.get(Audit,aid)
     if not a: raise HTTPException(404,"Audit not found")
+    ap=db.scalar(select(Approval).where(Approval.audit_id==aid))
+    if ap and ap.decision=="approved":
+        raise HTTPException(409,"Approved audits are immutable. Create a new submission and audit instead.")
     n=(db.scalar(select(func.max(Revision.revision_number)).where(Revision.audit_id==aid)) or 0)+1
     r=Revision(audit_id=aid,revision_number=n,content=p.content); db.add(r)
     log_event(db,a.workspace_id,"revision.created",aid,p.actor,{"revision_number":n}); db.commit(); db.refresh(r)
@@ -487,6 +550,9 @@ def add_revision(aid:str,p:RevisionIn,db:Session=Depends(db_session)):
 def reevaluate(aid:str,db:Session=Depends(db_session)):
     a=db.get(Audit,aid)
     if not a: raise HTTPException(404,"Audit not found")
+    ap=db.scalar(select(Approval).where(Approval.audit_id==aid))
+    if ap and ap.decision=="approved":
+        raise HTTPException(409,"Approved audits are immutable. Create a new submission and audit instead.")
     r=db.scalar(select(Revision).where(Revision.audit_id==aid).order_by(Revision.revision_number.desc()).limit(1))
     if not r: raise HTTPException(400,"Create a revision first.")
     old=db.get(Document,a.document_id)
