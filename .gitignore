@@ -1,4 +1,3 @@
-```gitignore
 # Python
 __pycache__/
 *.py[cod]
@@ -33,4 +32,3 @@ audit_response*.json
 .idea/
 .DS_Store
 Thumbs.db
-```
