@@ -370,16 +370,35 @@ async def upload_document(workspace_id:str=Query(...),kind:str=Query("reference"
     filename=Path(file.filename or "upload").name
     if Path(filename).suffix.lower() not in {".pdf",".docx",".txt",".md",".csv",".json"}:
         raise HTTPException(415,"Unsupported file type.")
-    raw=await file.read()
-    if len(raw)>MAX_UPLOAD_MB*1024*1024: raise HTTPException(413,f"Maximum upload size is {MAX_UPLOAD_MB} MB.")
-    suffix=Path(filename).suffix.lower(); target=STORAGE/(uuid.uuid4().hex+suffix); target.write_bytes(raw)
-    try: text=extract(target,filename)
+    suffix=Path(filename).suffix.lower()
+    target=STORAGE/(uuid.uuid4().hex+suffix)
+    digest=hashlib.sha256()
+    total_bytes=0
+    max_bytes=MAX_UPLOAD_MB*1024*1024
+    try:
+        # Stream to disk and enforce the limit as bytes arrive. Reading the whole
+        # upload first would let oversized requests consume unbounded memory.
+        with target.open("wb") as destination:
+            while chunk := await file.read(1024*1024):
+                total_bytes += len(chunk)
+                if total_bytes > max_bytes:
+                    raise HTTPException(413,f"Maximum upload size is {MAX_UPLOAD_MB} MB.")
+                digest.update(chunk)
+                destination.write(chunk)
+        text=extract(target,filename)
+    except HTTPException:
+        target.unlink(missing_ok=True)
+        raise
     except Exception as e:
-        target.unlink(missing_ok=True); raise HTTPException(422,f"Text extraction failed: {e}")
+        target.unlink(missing_ok=True)
+        raise HTTPException(422,f"Text extraction failed: {e}")
+    finally:
+        await file.close()
     if not text.strip():
-        target.unlink(missing_ok=True); raise HTTPException(422,"No text extracted. Scanned PDFs need OCR; OCR is not included.")
+        target.unlink(missing_ok=True)
+        raise HTTPException(422,"No text extracted. Scanned PDFs need OCR; OCR is not included.")
     d=Document(workspace_id=workspace_id,filename=filename,content_type=file.content_type,
-      storage_path=str(target),extracted_text=text,sha256=hashlib.sha256(raw).hexdigest(),kind=kind)
+      storage_path=str(target),extracted_text=text,sha256=digest.hexdigest(),kind=kind)
     db.add(d); db.flush()
     log_event(db,workspace_id,"document.uploaded",details={"document_id":d.id,"filename":filename,"kind":kind})
     db.commit(); db.refresh(d)
@@ -482,6 +501,18 @@ def reevaluate(aid:str,db:Session=Depends(db_session)):
 def approve(aid:str,p:ApprovalIn,db:Session=Depends(db_session)):
     a=db.get(Audit,aid)
     if not a: raise HTTPException(404,"Audit not found")
+    # Open findings are unresolved and must be dispositioned before approval.
+    # accepted = reviewer explicitly accepts the flagged risk; dismissed/resolved are closed.
+    if p.decision == "approved":
+        open_count = db.scalar(select(func.count(Finding.id)).where(
+            Finding.audit_id == aid, Finding.status == "open"
+        )) or 0
+        if open_count:
+            raise HTTPException(
+                409,
+                detail=f"Cannot approve: {open_count} finding(s) are still open. "
+                       "Resolve, dismiss, or explicitly accept each finding first."
+            )
     ap=db.scalar(select(Approval).where(Approval.audit_id==aid))
     if not ap: ap=Approval(audit_id=aid); db.add(ap)
     ap.decision=p.decision; ap.reviewer=p.reviewer; ap.comment=p.comment; ap.decided_at=now()
@@ -492,8 +523,13 @@ def approve(aid:str,p:ApprovalIn,db:Session=Depends(db_session)):
 def set_finding_status(fid:str,status:str=Query(...,pattern="^(open|accepted|dismissed|resolved)$"),db:Session=Depends(db_session)):
     f=db.get(Finding,fid)
     if not f: raise HTTPException(404,"Finding not found")
-    f.status=status; a=db.get(Audit,f.audit_id)
-    log_event(db,a.workspace_id,"finding.status_updated",a.id,details={"finding_id":fid,"status":status}); db.commit()
+    a=db.get(Audit,f.audit_id)
+    ap=db.scalar(select(Approval).where(Approval.audit_id==a.id))
+    if ap and ap.decision=="approved":
+        raise HTTPException(409,"Approved audits are immutable. Create a new revision and audit instead.")
+    f.status=status
+    log_event(db,a.workspace_id,"finding.status_updated",a.id,details={"finding_id":fid,"status":status})
+    db.commit()
     return {"id":fid,"status":status}
 @app.get("/api/audits/{aid}/events")
 def audit_events(aid:str,db:Session=Depends(db_session)):
