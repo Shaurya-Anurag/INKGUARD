@@ -32,3 +32,16 @@ audit_response*.json
 .idea/
 .DS_Store
 Thumbs.db
+
+# Node.js / Next.js
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+
+# Environment files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
