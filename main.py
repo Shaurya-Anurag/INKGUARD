@@ -25,6 +25,12 @@ from sqlalchemy import create_engine, String, Text, Integer, Float, Boolean, Dat
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker, Session
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./inkguard.db")
+# Neon and most managed Postgres providers supply postgresql:// URLs.
+# Explicitly select psycopg v3 so SQLAlchemy uses the driver in requirements.txt.
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 STORAGE = Path(os.getenv("INKGUARD_STORAGE", "./storage")).resolve()
 STORAGE.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "15"))
