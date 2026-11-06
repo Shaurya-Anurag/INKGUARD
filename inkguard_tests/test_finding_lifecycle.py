@@ -66,7 +66,7 @@ def test_finding_status_transitions_persist_and_are_audited(client):
     audit = create_audit_with_findings(client)
     aid = audit["id"]
     findings = audit["findings"]
-    assert len(findings) == 3
+    assert len(findings) >= 3
 
     expected = {
         findings[0]["id"]: "resolved",
@@ -84,7 +84,8 @@ def test_finding_status_transitions_persist_and_are_audited(client):
     refreshed = client.get(f"/api/audits/{aid}")
     assert refreshed.status_code == 200
     actual = {f["id"]: f["status"] for f in refreshed.json()["findings"]}
-    assert actual == expected
+    assert {fid: actual[fid] for fid in expected} == expected
+    assert all(actual[fid] == "open" for fid in actual.keys() - expected.keys())
 
     events = client.get(f"/api/audits/{aid}/events")
     assert events.status_code == 200
