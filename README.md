@@ -1,68 +1,114 @@
 # INKGUARD
 
-AI-assisted brand governance and pre-publication content review. This repository currently contains a **prototype backend** built with FastAPI, SQLAlchemy, and SQLite by default.
+INKGUARD is a pre-publication brand-governance workspace. Teams configure brand rules, approved product facts and terminology; submit content; inspect evidence-backed findings; revise; re-evaluate; and record a human approval decision.
 
 > Automated findings are advisory. INKGUARD does not establish legal truth or automatically approve content. Human review is required.
 
-## Backend setup (Windows / Git Bash)
+## Product workflow
+
+1. Open the VELORA workspace.
+2. Configure verified brand rules, approved facts and prohibited/preferred terminology.
+3. Upload a submission (PDF, DOCX, TXT, MD, CSV or JSON; 15 MB default limit).
+4. Review the audit findings, explanations, suggestions and evidence.
+5. Update finding dispositions or revise the content in Correction Studio.
+6. Re-evaluate the revision. A new audit is created; the earlier audit remains in history.
+7. Record an approval or request changes. Approval is blocked while any finding remains open.
+
+## Stack
+
+- **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS 4.
+- **Backend:** FastAPI, SQLAlchemy.
+- **Database:** SQLite by default; PostgreSQL can be configured with a SQLAlchemy URL.
+- **Document extraction:** pypdf and python-docx; scanned-PDF OCR is not included.
+
+## Run locally (Windows / Git Bash)
+
+### 1. Backend
+
+From the repository root:
 
 ```bash
 python -m venv venv
 source venv/Scripts/activate
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 uvicorn main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/docs` for interactive API documentation and `http://127.0.0.1:8000/api/health` for the health check.
+Backend API: http://127.0.0.1:8000  
+Interactive API docs: http://127.0.0.1:8000/docs  
+Health check: http://127.0.0.1:8000/api/health
 
-## Tests
+### 2. Frontend
+
+Open a second terminal:
+
+```bash
+cd frontend
+cp .env.example .env.local
+npm ci
+npm run dev
+```
+
+Frontend: http://localhost:3000
+
+The frontend expects the backend at `http://127.0.0.1:8000` by default. Change `NEXT_PUBLIC_API_BASE_URL` in `frontend/.env.local` if needed.
+
+## Validation
+
+Backend tests (repository root):
 
 ```bash
 python -m pytest -q
 ```
 
-The tests cover the VELORA compliance regression fixture, approval workflow rules, approved-audit immutability, and upload-size enforcement.
+Frontend checks (from `frontend/`):
 
-## Main workflow
+```bash
+npm run lint
+npm run build
+```
 
-1. Create a workspace.
-2. Add verified brand rules, approved facts, and terminology.
-3. Upload content using `kind=submission`.
-4. Create an audit for that document.
-5. Review findings and their evidence.
-6. Add a revision and re-evaluate it to create a new audit.
-7. Resolve, dismiss, or explicitly accept findings before approving.
-
-## Important API routes
-
-- `POST /api/workspaces`
-- `POST /api/documents/upload`
-- `POST /api/brand/rules`
-- `POST /api/brand/facts`
-- `POST /api/brand/terminology`
-- `POST /api/audits`
-- `GET /api/audits/{aid}`
-- `POST /api/audits/{aid}/revisions`
-- `POST /api/audits/{aid}/reevaluate`
-- `PATCH /api/findings/{fid}?status=resolved`
-- `POST /api/audits/{aid}/approve`
-- `GET /api/analytics/overview`
+GitHub Actions runs backend tests and frontend lint/build on pushes to `main`, `backend-dev`, and `frontend-dev`, and on pull requests targeting `main`.
 
 ## Configuration
 
-- `DATABASE_URL`: defaults to `sqlite:///./inkguard.db`.
-- `INKGUARD_STORAGE`: defaults to `./storage`.
-- `MAX_UPLOAD_MB`: defaults to `15`.
-- `CORS_ORIGINS`: comma-separated origins; defaults to localhost ports used by Next.js.
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | `sqlite:///./inkguard.db` | SQLAlchemy database URL |
+| `INKGUARD_STORAGE` | `./storage` | Local upload storage directory |
+| `MAX_UPLOAD_MB` | `15` | Maximum upload size |
+| `CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated allowed browser origins |
 
 For PostgreSQL, install `psycopg[binary]` and set `DATABASE_URL` to a PostgreSQL SQLAlchemy URL.
 
-## Prototype limitations — do not misrepresent these
+## API overview
 
-- No authentication, authorization, or tenant isolation. Do not expose this API publicly.
-- Compliance evaluation is deterministic and heuristic; no LLM/RAG engine is implemented.
+- Workspaces: `GET/POST /api/workspaces`
+- Documents: `POST /api/documents/upload`, `GET /api/documents`
+- Brand rules: `GET/POST /api/brand/rules`, `PUT/DELETE /api/brand/rules/{id}`
+- Approved facts: `GET/POST /api/brand/facts`, `PUT/DELETE /api/brand/facts/{id}`
+- Terminology: `GET/POST /api/brand/terminology`, `PUT/DELETE /api/brand/terminology/{id}`
+- Audits: `POST /api/audits`, `GET /api/audits`, `GET /api/audits/{id}`
+- Revisions: `POST /api/audits/{id}/revisions`, `POST /api/audits/{id}/reevaluate`
+- Review: `PATCH /api/findings/{id}`, `POST /api/audits/{id}/approve`
+- History and analytics: `GET /api/events`, `GET /api/audits/{id}/events`, `GET /api/analytics/overview`
+
+The running app's `/openapi.json` is the source of truth for request and response schemas.
+
+## Known prototype limitations
+
+- No authentication, authorization, or production tenant isolation. Do not expose this API publicly or use it with sensitive customer content.
+- Evaluation is deterministic and heuristic. No LLM/RAG engine is implemented.
 - No OCR for scanned PDFs.
-- Numeric matching and claim detection can produce false positives/negatives.
-- SQLite schema creation uses `create_all`; production migrations are not configured.
-- Local file storage is used by default; production object storage and retention controls are not configured.
+- Claim and numeric matching can produce false positives and false negatives.
 - Compliance score is a transparent demo heuristic, not a legal or regulatory certification.
+- SQLite schema creation uses `create_all`; production migrations are not configured.
+- Local file storage is used by default; production object storage, retention and backup controls are not configured.
+- No load or concurrency certification.
+
+## Project structure
+
+- `main.py` — API, persistence models, document extraction and evaluator.
+- `inkguard_tests/` — backend regression and workflow tests.
+- `frontend/` — Next.js application and typed API client.
+- `docs/` — API and architecture notes.
