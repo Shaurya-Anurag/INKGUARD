@@ -147,4 +147,12 @@ export interface HealthResponse {
   database: string;
 }
 
-export type BrandRule = BrandRuleIn & { id: string };
+export interface BrandRule {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  severity: string;
+  verified: boolean;
+  source_document_id: string | null;
+}
