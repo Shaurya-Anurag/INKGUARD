@@ -1,5 +1,6 @@
 import type {
   ApprovalIn,
+  ApprovalResult,
   AnalyticsOverview,
   Audit,
   AuditEvent,
@@ -209,7 +210,7 @@ export const api = {
       ),
 
     approve: (id: string, input: ApprovalIn) =>
-      request<Audit>(
+      request<ApprovalResult>(
         `/api/audits/${id}/approve`,
         json("POST", input),
       ),
