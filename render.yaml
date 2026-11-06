@@ -10,7 +10,7 @@ services:
       - key: PYTHON_VERSION
         value: 3.12.8
       - key: INKGUARD_STORAGE
-        value: /var/data
+        value: /tmp/inkguard-uploads
       - key: MAX_UPLOAD_MB
         value: 15
       # Set DATABASE_URL and CORS_ORIGINS in the Render Dashboard.
