@@ -69,3 +69,66 @@ def test_numeric_fact_requires_matching_product_subject(client):
         unrelated = main.evaluate(db, ws["id"], "LUMI Niacinamide Serum\nOur formula contains 20% Vitamin C.")
     assert any(x["finding_type"] == "fact_contradiction" for x in matching)
     assert not any(x["finding_type"] == "fact_contradiction" for x in unrelated)
+
+
+def test_brand_records_support_update_delete_and_workspace_isolation(client):
+    ws, _ = make_audit(client)
+    other = client.post("/api/workspaces", json={"name": "OTHER"}).json()
+
+    rule = client.post("/api/brand/rules", json={
+        "workspace_id": ws["id"], "title": "Original rule",
+        "description": "Original description", "category": "claims",
+        "severity": "high", "verified": True
+    })
+    assert rule.status_code == 201
+    rid = rule.json()["id"]
+
+    updated_rule = client.put(f"/api/brand/rules/{rid}", json={
+        "workspace_id": ws["id"], "title": "Updated rule",
+        "description": "Updated description", "category": "compliance",
+        "severity": "critical", "verified": True
+    })
+    assert updated_rule.status_code == 200
+    assert updated_rule.json()["title"] == "Updated rule"
+    assert client.put(f"/api/brand/rules/{rid}", json={
+        "workspace_id": other["id"], "title": "Cross workspace",
+        "description": "No", "verified": True
+    }).status_code == 404
+    assert client.delete(f"/api/brand/rules/{rid}").status_code == 204
+    assert client.delete(f"/api/brand/rules/{rid}").status_code == 404
+
+    fact = client.post("/api/brand/facts", json={
+        "workspace_id": ws["id"], "subject": "VELORA Serum",
+        "attribute": "Vitamin C concentration", "approved_value": "10",
+        "unit": "%", "verified": True
+    })
+    assert fact.status_code == 201
+    fid = fact.json()["id"]
+    updated_fact = client.put(f"/api/brand/facts/{fid}", json={
+        "workspace_id": ws["id"], "subject": "VELORA Serum",
+        "attribute": "Vitamin C concentration", "approved_value": "12",
+        "unit": "%", "verified": True
+    })
+    assert updated_fact.status_code == 200
+    assert updated_fact.json()["approved_value"] == "12"
+    assert client.delete(f"/api/brand/facts/{fid}").status_code == 204
+    assert client.delete(f"/api/brand/facts/{fid}").status_code == 404
+
+    term = client.post("/api/brand/terminology", json={
+        "workspace_id": ws["id"], "term": "miracle",
+        "replacement": None, "term_type": "prohibited"
+    })
+    assert term.status_code == 201
+    tid = term.json()["id"]
+    updated_term = client.put(f"/api/brand/terminology/{tid}", json={
+        "workspace_id": ws["id"], "term": "guaranteed",
+        "replacement": None, "term_type": "prohibited"
+    })
+    assert updated_term.status_code == 200
+    assert updated_term.json()["term"] == "guaranteed"
+    assert client.put(f"/api/brand/terminology/{tid}", json={
+        "workspace_id": other["id"], "term": "cross",
+        "term_type": "prohibited"
+    }).status_code == 404
+    assert client.delete(f"/api/brand/terminology/{tid}").status_code == 204
+    assert client.delete(f"/api/brand/terminology/{tid}").status_code == 404
