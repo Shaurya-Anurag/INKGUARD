@@ -337,7 +337,7 @@ def evaluate(db,wid,content):
             # nearest matching heading, rather than requiring it to be adjacent.
             if not subject_found and pleft > 0:
                 preceding=content[max(0,pleft-500):pleft]
-                paragraphs=[part.strip() for part in preceding.split("\\n\\n") if part.strip()]
+                paragraphs=[part.strip() for part in preceding.split("\n\n") if part.strip()]
                 for previous in reversed(paragraphs):
                     is_heading=(
                         len(previous)<=120
@@ -347,7 +347,7 @@ def evaluate(db,wid,content):
                         continue
                     previous_lower=previous.lower()
                     if all(
-                        re.search(r"\\b"+re.escape(anchor)+r"\\b",previous_lower)
+                        re.search(r"\b"+re.escape(anchor)+r"\b",previous_lower)
                         for anchor in subject_anchors
                     ):
                         subject_found=True
