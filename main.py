@@ -243,10 +243,12 @@ def evaluate(db,wid,content):
     facts=db.scalars(select(ApprovedFact).where(ApprovedFact.workspace_id==wid,ApprovedFact.verified.is_(True))).all()
 
     for t in terms:
-        hay=content if t.case_sensitive else content.lower()
-        needle=t.term if t.case_sensitive else t.term.lower()
-        # Find every occurrence, not only the first one.
-        for m in re.finditer(re.escape(needle),hay):
+        # Match complete terms/phrases, not substrings inside unrelated words
+        # (e.g. "safe" must not match "unsafe"). Preserve configured case sensitivity.
+        term_pattern=r"(?<!\\w)"+re.escape(t.term)+r"(?!\\w)"
+        flags=0 if t.case_sensitive else re.IGNORECASE
+        # Find every whole-term occurrence, not only the first one.
+        for m in re.finditer(term_pattern,content,flags):
             if t.term_type=="prohibited":
                 out.append(dict(category="terminology",finding_type="terminology_violation",severity="high",
                   detected_text=content[m.start():m.end()],explanation=f"'{t.term}' is prohibited terminology.",
@@ -274,6 +276,18 @@ def evaluate(db,wid,content):
 
     for pattern,kind,why in CLAIM_PATTERNS:
         for m in re.finditer(pattern,content,re.I):
+            # If the exact wording is already covered by a prohibited brand term,
+            # keep the policy finding as the single actionable item. This avoids
+            # duplicate cards such as "miracle cure" + "cure".
+            covered_by_prohibited_term=any(
+                item["category"]=="terminology"
+                and item["finding_type"]=="terminology_violation"
+                and item["start_offset"] <= m.start()
+                and item["end_offset"] >= m.end()
+                for item in out
+            )
+            if covered_by_prohibited_term:
+                continue
             out.append(dict(category="claims",finding_type=kind,severity="high",detected_text=m.group(),
               explanation=why+" This is a wording flag, not a determination that the claim is false.",
               suggestion="Verify against approved substantiation or rewrite as a qualified claim.",
