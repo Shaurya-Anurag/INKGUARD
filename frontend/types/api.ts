@@ -93,6 +93,14 @@ export interface Finding {
   end_offset: number;
 }
 
+export interface ApprovalResult {
+  audit_id: string;
+  decision: ApprovalDecision;
+  reviewer: string;
+  comment: string | null;
+  decided_at: string;
+}
+
 export interface Approval {
   decision: ApprovalDecision;
   reviewer: string;
