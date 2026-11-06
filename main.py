@@ -206,7 +206,7 @@ WEIGHTS={"critical":18,"high":12,"medium":7,"low":3}
 CLAIM_PATTERNS=[
  (r"\b100\s*%\s*(?:safe|effective|guaranteed)\b","absolute_claim","Absolute claims require explicit substantiation."),
  (r"\b(?:cures?|eliminates?|permanently removes?)\b","strong_outcome_claim","Strong outcome claims require approved substantiation."),
- (r"\b(?:in|within)\s+\d+\s+days?\b","time_bound_claim","Time-bound performance claims require approved substantiation.")
+ (r"\b(?:in|within)\s+(?:just\s+)?\d+\s+days?\b","time_bound_claim","Time-bound performance claims require approved substantiation.")
 ]
 
 def _sentence_bounds(content, start, end):
@@ -332,23 +332,26 @@ def evaluate(db,wid,content):
                 for anchor in subject_anchors
             )
 
-            # A product heading immediately above the paragraph can establish context.
-            # Do not search arbitrarily far back: that risks borrowing another product's identity.
+            # Product copy may put a short marketing intro between its product
+            # heading and a factual sentence. Search a bounded lookback for the
+            # nearest matching heading, rather than requiring it to be adjacent.
             if not subject_found and pleft > 0:
-                previous_separator=content.rfind("\n\n",0,max(0,pleft-2))
-                previous_start=0 if previous_separator < 0 else previous_separator+2
-                previous=content[previous_start:pleft].strip()
-                is_heading=(
-                    bool(previous)
-                    and len(previous)<=120
-                    and not re.search(r"[.!?]",previous)
-                )
-                if is_heading:
-                    previous_lower=previous.lower()
-                    subject_found=all(
-                        re.search(r"\b"+re.escape(anchor)+r"\b",previous_lower)
-                        for anchor in subject_anchors
+                preceding=content[max(0,pleft-500):pleft]
+                paragraphs=[part.strip() for part in preceding.split("\\n\\n") if part.strip()]
+                for previous in reversed(paragraphs):
+                    is_heading=(
+                        len(previous)<=120
+                        and not re.search(r"[.!?]",previous)
                     )
+                    if not is_heading:
+                        continue
+                    previous_lower=previous.lower()
+                    if all(
+                        re.search(r"\\b"+re.escape(anchor)+r"\\b",previous_lower)
+                        for anchor in subject_anchors
+                    ):
+                        subject_found=True
+                        break
 
             if not subject_found:
                 continue
