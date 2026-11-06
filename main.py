@@ -245,7 +245,7 @@ def evaluate(db,wid,content):
     for t in terms:
         # Match complete terms/phrases, not substrings inside unrelated words
         # (e.g. "safe" must not match "unsafe"). Preserve configured case sensitivity.
-        term_pattern=r"(?<!\\w)"+re.escape(t.term)+r"(?!\\w)"
+        term_pattern=r"(?<!\w)"+re.escape(t.term)+r"(?!\w)"
         flags=0 if t.case_sensitive else re.IGNORECASE
         # Find every whole-term occurrence, not only the first one.
         for m in re.finditer(term_pattern,content,flags):
