@@ -23,10 +23,16 @@ All routes use the `/api` prefix unless stated otherwise.
 ## Brand configuration
 
 - `POST /api/brand/rules`
+- `PUT /api/brand/rules/{rid}`
+- `DELETE /api/brand/rules/{rid}`
 - `GET /api/brand/rules?workspace_id={id}`
 - `POST /api/brand/facts`
+- `PUT /api/brand/facts/{fid}`
+- `DELETE /api/brand/facts/{fid}`
 - `GET /api/brand/facts?workspace_id={id}`
 - `POST /api/brand/terminology`
+- `PUT /api/brand/terminology/{tid}`
+- `DELETE /api/brand/terminology/{tid}`
 - `GET /api/brand/terminology?workspace_id={id}`
 
 ## Audits and review
@@ -50,6 +56,7 @@ All routes use the `/api` prefix unless stated otherwise.
 - Approval is rejected while findings remain open.
 - Findings require explicit reviewer disposition.
 - Re-evaluation creates a new audit.
+- Brand record update/delete routes require the owning workspace ID on PUT; cross-workspace updates are rejected. DELETE uses the record ID and resolves its workspace server-side.
 - Approved audits reject further revisions and re-evaluation.
 - Automated findings are advisory and require human review.
 
