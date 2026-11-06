@@ -592,9 +592,15 @@ def create_audit_endpoint(p:AuditIn,db:Session=Depends(db_session)):
 @app.get("/api/audits")
 def list_audits(workspace_id:str,db:Session=Depends(db_session)):
     workspace_or_404(db,workspace_id); rows=db.scalars(select(Audit).where(Audit.workspace_id==workspace_id).order_by(Audit.created_at.desc())).all()
-    return [{"id":a.id,"document_id":a.document_id,"status":a.status,"compliance_score":a.score,
-      "finding_count":db.scalar(select(func.count(Finding.id)).where(Finding.audit_id==a.id)) or 0,
-      "created_at":a.created_at.isoformat()} for a in rows]
+    result=[]
+    for a in rows:
+        approval=db.scalar(select(Approval).where(Approval.audit_id==a.id))
+        result.append({"id":a.id,"document_id":a.document_id,"status":a.status,
+          "approval_decision":approval.decision if approval else "pending",
+          "compliance_score":a.score,
+          "finding_count":db.scalar(select(func.count(Finding.id)).where(Finding.audit_id==a.id)) or 0,
+          "created_at":a.created_at.isoformat()})
+    return result
 @app.get("/api/audits/{aid}")
 def get_audit(aid:str,db:Session=Depends(db_session)):
     a=db.get(Audit,aid)
