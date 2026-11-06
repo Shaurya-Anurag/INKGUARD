@@ -518,6 +518,71 @@ def get_terms(workspace_id:str,db:Session=Depends(db_session)):
     return [{"id":t.id,"term":t.term,"replacement":t.replacement,"term_type":t.term_type,
       "case_sensitive":t.case_sensitive} for t in db.scalars(select(Terminology).where(Terminology.workspace_id==workspace_id)).all()]
 
+
+@app.put("/api/brand/rules/{rid}")
+def update_rule(rid:str,p:RuleIn,db:Session=Depends(db_session)):
+    r=db.get(BrandRule,rid)
+    if not r: raise HTTPException(404,"Brand rule not found")
+    if r.workspace_id!=p.workspace_id: raise HTTPException(404,"Brand rule not found in workspace")
+    if p.source_document_id:
+        d=db.get(Document,p.source_document_id)
+        if not d or d.workspace_id!=p.workspace_id: raise HTTPException(400,"Source document is not in this workspace.")
+    for key,value in p.model_dump(exclude={"workspace_id"}).items(): setattr(r,key,value)
+    log_event(db,r.workspace_id,"brand_rule.updated",details={"rule_id":rid})
+    db.commit(); db.refresh(r)
+    return {"id":r.id,"title":r.title,"description":r.description,"category":r.category,
+      "severity":r.severity,"verified":r.verified,"source_document_id":r.source_document_id}
+@app.delete("/api/brand/rules/{rid}",status_code=204)
+def delete_rule(rid:str,db:Session=Depends(db_session)):
+    r=db.get(BrandRule,rid)
+    if not r: raise HTTPException(404,"Brand rule not found")
+    wid=r.workspace_id
+    log_event(db,wid,"brand_rule.deleted",details={"rule_id":rid})
+    db.delete(r); db.commit()
+    return None
+
+@app.put("/api/brand/facts/{fid}")
+def update_fact(fid:str,p:FactIn,db:Session=Depends(db_session)):
+    f=db.get(ApprovedFact,fid)
+    if not f: raise HTTPException(404,"Approved fact not found")
+    if f.workspace_id!=p.workspace_id: raise HTTPException(404,"Approved fact not found in workspace")
+    if p.source_document_id:
+        d=db.get(Document,p.source_document_id)
+        if not d or d.workspace_id!=p.workspace_id: raise HTTPException(400,"Source document is not in this workspace.")
+    for key,value in p.model_dump(exclude={"workspace_id"}).items(): setattr(f,key,value)
+    log_event(db,f.workspace_id,"approved_fact.updated",details={"fact_id":fid})
+    db.commit(); db.refresh(f)
+    return {"id":f.id,"subject":f.subject,"attribute":f.attribute,"approved_value":f.approved_value,
+      "unit":f.unit,"verified":f.verified,"source_document_id":f.source_document_id}
+@app.delete("/api/brand/facts/{fid}",status_code=204)
+def delete_fact(fid:str,db:Session=Depends(db_session)):
+    f=db.get(ApprovedFact,fid)
+    if not f: raise HTTPException(404,"Approved fact not found")
+    wid=f.workspace_id
+    log_event(db,wid,"approved_fact.deleted",details={"fact_id":fid})
+    db.delete(f); db.commit()
+    return None
+
+@app.put("/api/brand/terminology/{tid}")
+def update_term(tid:str,p:TermIn,db:Session=Depends(db_session)):
+    t=db.get(Terminology,tid)
+    if not t: raise HTTPException(404,"Terminology record not found")
+    if t.workspace_id!=p.workspace_id: raise HTTPException(404,"Terminology record not found in workspace")
+    if p.term_type not in {"prohibited","preferred"}: raise HTTPException(422,"term_type must be prohibited or preferred.")
+    for key,value in p.model_dump(exclude={"workspace_id"}).items(): setattr(t,key,value)
+    log_event(db,t.workspace_id,"terminology.updated",details={"term_id":tid})
+    db.commit(); db.refresh(t)
+    return {"id":t.id,"term":t.term,"replacement":t.replacement,"term_type":t.term_type,
+      "case_sensitive":t.case_sensitive}
+@app.delete("/api/brand/terminology/{tid}",status_code=204)
+def delete_term(tid:str,db:Session=Depends(db_session)):
+    t=db.get(Terminology,tid)
+    if not t: raise HTTPException(404,"Terminology record not found")
+    wid=t.workspace_id
+    log_event(db,wid,"terminology.deleted",details={"term_id":tid})
+    db.delete(t); db.commit()
+    return None
+
 @app.post("/api/audits",status_code=201)
 def create_audit_endpoint(p:AuditIn,db:Session=Depends(db_session)):
     workspace_or_404(db,p.workspace_id); d=db.get(Document,p.document_id)
