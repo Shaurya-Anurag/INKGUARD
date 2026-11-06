@@ -282,6 +282,13 @@ def evaluate(db,wid,content):
             covered_by_prohibited_term=any(
                 item["category"]=="terminology"
                 and item["finding_type"]=="terminology_violation"
+                # Suppress a smaller generic claim token contained in a longer
+                # prohibited phrase, but let exact-span detectors merge so both
+                # policy checks remain visible in the explanation/evidence.
+                and (
+                    item["start_offset"] < m.start()
+                    or item["end_offset"] > m.end()
+                )
                 and item["start_offset"] <= m.start()
                 and item["end_offset"] >= m.end()
                 for item in out
