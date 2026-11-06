@@ -1,109 +1,69 @@
-import {
-  Activity, ArrowDownRight, ArrowUpRight, Bell, BookOpenCheck, CheckCircle2,
-  ChevronDown, CircleHelp, Clock3, FileCheck2, FilePlus2, FileText,
-  LayoutDashboard, Search, Settings2, ShieldCheck, Sparkles, Users,
-} from "lucide-react";
+"use client";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Activity, ArrowLeft, BookOpenCheck, CheckCircle2, ChevronRight, FileCheck2, FilePlus2, FileText, LayoutDashboard, Loader2, Plus, RefreshCw, ShieldCheck, Upload, Users, Settings2 } from "lucide-react";
+import { api, ApiError } from "@/lib/api/client";
+import type { AnalyticsOverview, Audit, AuditEvent, ApprovedFact, BrandRule, Document, Finding, FindingStatus, Terminology, Workspace } from "@/types/api";
 
-const navigation = [
-  { label: "Overview", icon: LayoutDashboard, active: true },
-  { label: "Brand intelligence", icon: BookOpenCheck },
-  { label: "Content audits", icon: FileCheck2 },
-  { label: "New submission", icon: FilePlus2 },
-  { label: "Approval centre", icon: CheckCircle2 },
-  { label: "Governance analytics", icon: Activity },
-];
+type View = "overview"|"audits"|"audit"|"submission"|"brand"|"approvals"|"analytics"|"team"|"settings";
+type AuditRow = {id:string;document_id:string;status:string;compliance_score:number;finding_count:number;created_at:string};
+const nav = [{id:"overview" as View,label:"Overview",icon:LayoutDashboard},{id:"brand" as View,label:"Brand intelligence",icon:BookOpenCheck},{id:"audits" as View,label:"Content audits",icon:FileCheck2},{id:"submission" as View,label:"New submission",icon:FilePlus2},{id:"approvals" as View,label:"Approval centre",icon:CheckCircle2},{id:"analytics" as View,label:"Governance analytics",icon:Activity}];
+const panel:React.CSSProperties={background:"var(--surface)",border:"1px solid var(--border)",borderRadius:5};
+const primary:React.CSSProperties={background:"var(--crimson)",color:"white",border:0,borderRadius:4,padding:"10px 14px",fontSize:12,fontWeight:650,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:7};
+const secondary:React.CSSProperties={background:"var(--surface)",color:"var(--ink)",border:"1px solid var(--border)",borderRadius:4,padding:"9px 12px",fontSize:12,cursor:"pointer",display:"inline-flex",alignItems:"center",gap:7};
+const input:React.CSSProperties={width:"100%",padding:10,border:"1px solid var(--border)",borderRadius:4,background:"var(--surface)",color:"var(--ink)",fontSize:12,marginBottom:11};
+const label:React.CSSProperties={display:"block",fontSize:10,color:"var(--muted)",letterSpacing:".08em",marginBottom:6};
+const dt=(s:string)=>new Date(s).toLocaleString("en-IN",{dateStyle:"medium",timeStyle:"short"});
+const message=(e:unknown)=>e instanceof Error?e.message:"Unexpected error";
 
-const stats = [
-  { label: "CONTENT AUDITED", value: "128", note: "+12 this week", trend: "up" },
-  { label: "NEEDS ATTENTION", value: "09", note: "Across 6 audits", trend: "down" },
-  { label: "APPROVAL RATE", value: "94.2%", note: "+2.4% this month", trend: "up" },
-  { label: "PENDING REVIEW", value: "04", note: "2 high priority", trend: "neutral" },
-];
-
-const audits = [
-  { name: "Vitamin C serum — launch campaign", type: "Social campaign", date: "Today, 10:42 AM", findings: 3, status: "Needs review", tone: "rose" },
-  { name: "HydraLock product landing page", type: "Website copy", date: "Today, 09:18 AM", findings: 1, status: "In review", tone: "amber" },
-  { name: "September newsletter", type: "Email marketing", date: "Yesterday", findings: 0, status: "Approved", tone: "green" },
-];
-
-export default function Home() {
-  return (
-    <div className="min-h-screen" style={{ display: "flex", background: "var(--background)" }}>
-      <aside className="app-sidebar" style={{ width: 252, minHeight: "100vh", flexShrink: 0, padding: "27px 17px", background: "var(--surface)", borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "0 10px 30px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 30, height: 30, display: "grid", placeItems: "center", background: "var(--crimson)", color: "white", borderRadius: 4 }}><ShieldCheck size={18} /></div>
-            <span style={{ fontSize: 19, fontWeight: 750, letterSpacing: ".12em" }}>INKGUARD</span>
-          </div>
-          <div className="eyebrow" style={{ margin: "9px 0 0 40px", fontSize: 9 }}>BRAND GOVERNANCE</div>
-        </div>
-
-        <button className="panel" style={{ padding: 11, display: "flex", alignItems: "center", gap: 10, textAlign: "left", cursor: "pointer", marginBottom: 27 }}>
-          <div style={{ width: 31, height: 31, display: "grid", placeItems: "center", background: "var(--rose)", color: "var(--crimson-dark)", fontFamily: "var(--font-editorial)", fontSize: 18 }}>V</div>
-          <div style={{ flex: 1 }}><div style={{ fontSize: 12, fontWeight: 650 }}>VELORA</div><div className="muted" style={{ fontSize: 10, marginTop: 3 }}>Workspace</div></div>
-          <ChevronDown size={15} color="var(--muted)" />
-        </button>
-
-        <div className="eyebrow" style={{ padding: "0 10px", marginBottom: 10 }}>WORKSPACE</div>
-        <nav style={{ display: "grid", gap: 4 }}>
-          {navigation.map(({ label, icon: Icon, active }) => (
-            <a key={label} href="#" aria-current={active ? "page" : undefined} style={{ display: "flex", alignItems: "center", gap: 11, padding: "10px 11px", borderRadius: 4, fontSize: 12, fontWeight: active ? 650 : 500, color: active ? "var(--crimson-dark)" : "var(--muted)", background: active ? "var(--rose)" : "transparent" }}>
-              <Icon size={16} strokeWidth={1.8} />{label}
-              {label === "Approval centre" && <span style={{ marginLeft: "auto", fontSize: 10, background: "var(--crimson)", color: "white", borderRadius: 10, padding: "2px 6px" }}>4</span>}
-            </a>
-          ))}
-        </nav>
-
-        <div className="eyebrow" style={{ padding: "25px 10px 10px" }}>PREFERENCES</div>
-        <nav style={{ display: "grid", gap: 4 }}>
-          <a href="#" style={{ display: "flex", alignItems: "center", gap: 11, padding: "10px 11px", color: "var(--muted)", fontSize: 12 }}><Users size={16} />Team</a>
-          <a href="#" style={{ display: "flex", alignItems: "center", gap: 11, padding: "10px 11px", color: "var(--muted)", fontSize: 12 }}><Settings2 size={16} />Settings</a>
-        </nav>
-
-        <div style={{ marginTop: "auto", borderTop: "1px solid var(--border)", padding: "17px 8px 0" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <div style={{ width: 30, height: 30, borderRadius: "50%", background: "var(--surface-muted)", display: "grid", placeItems: "center", fontSize: 11, fontWeight: 700 }}>SA</div>
-            <div><div style={{ fontSize: 11, fontWeight: 650 }}>Workspace admin</div><div className="muted" style={{ fontSize: 10, marginTop: 3 }}>VELORA team</div></div>
-          </div>
-        </div>
-      </aside>
-
-      <main style={{ minWidth: 0, flex: 1 }}>
-        <header style={{ height: 66, padding: "0 4.2%", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border)", background: "rgba(255,253,249,.72)" }}>
-          <div className="muted" style={{ fontSize: 11 }}>Workspace <span style={{ padding: "0 7px", color: "var(--border)" }}>/</span><span style={{ color: "var(--ink)", fontWeight: 600 }}>Overview</span></div>
-          <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-            <button aria-label="Search" style={{ color: "var(--muted)" }}><Search size={17} /></button>
-            <button aria-label="Notifications" style={{ color: "var(--muted)" }}><Bell size={17} /></button>
-            <div style={{ width: 1, height: 23, background: "var(--border)" }} />
-            <div className="eyebrow">DEMO ENVIRONMENT</div>
-          </div>
-        </header>
-
-        <div style={{ maxWidth: 1450, margin: "0 auto", padding: "42px 4.2% 60px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 20, flexWrap: "wrap", marginBottom: 31 }}>
-            <div><div className="eyebrow" style={{ marginBottom: 10 }}>WEDNESDAY, NOVEMBER 05, 2026 · VELORA</div><h1 className="editorial" style={{ fontSize: "clamp(34px, 4vw, 47px)", lineHeight: 1.08, margin: 0 }}>Good morning.</h1><p className="muted" style={{ fontSize: 13, marginTop: 10 }}>Here&apos;s the current state of your brand governance.</p></div>
-            <button style={{ display: "flex", alignItems: "center", gap: 9, background: "var(--crimson)", color: "white", padding: "12px 16px", borderRadius: 4, fontSize: 12, fontWeight: 650, boxShadow: "0 3px 8px #A8172520" }}><FilePlus2 size={15} />New content audit</button>
-          </div>
-
-          <section className="stat-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 13, marginBottom: 25 }}>
-            {stats.map((stat) => <div key={stat.label} className="panel" style={{ padding: "19px 20px" }}><div className="eyebrow">{stat.label}</div><div style={{ display: "flex", alignItems: "baseline", gap: 9, marginTop: 14 }}><span className="editorial" style={{ fontSize: 34 }}>{stat.value}</span>{stat.trend === "up" ? <ArrowUpRight size={14} color="#47845B" /> : stat.trend === "down" ? <ArrowDownRight size={14} color="var(--crimson)" /> : null}</div><div className="muted" style={{ fontSize: 10, marginTop: 5 }}>{stat.note}</div></div>)}
-          </section>
-
-          <div className="dashboard-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0,1.7fr) minmax(260px,.85fr)", gap: 16, alignItems: "start" }}>
-            <section className="panel" style={{ overflow: "hidden" }}>
-              <div style={{ padding: "20px 22px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)" }}><div><div className="editorial" style={{ fontSize: 21 }}>Recent content audits</div><div className="muted" style={{ fontSize: 11, marginTop: 5 }}>Latest submissions across your workspace</div></div><a href="#" style={{ color: "var(--crimson-dark)", fontSize: 11, fontWeight: 650 }}>View all →</a></div>
-              <div>{audits.map((audit, index) => <div key={audit.name} style={{ padding: "17px 22px", display: "flex", alignItems: "center", gap: 13, borderBottom: index === audits.length - 1 ? 0 : "1px solid var(--border)" }}><div style={{ width: 35, height: 35, flexShrink: 0, display: "grid", placeItems: "center", background: "var(--surface-muted)", color: "var(--muted)", borderRadius: 4 }}><FileText size={17} /></div><div style={{ minWidth: 0, flex: 1 }}><div style={{ fontSize: 12, fontWeight: 650 }}>{audit.name}</div><div className="muted" style={{ fontSize: 10, marginTop: 5 }}>{audit.type} · {audit.date}</div></div><div style={{ textAlign: "right", flexShrink: 0 }}><div style={{ fontSize: 10, fontWeight: 650, color: audit.tone === "green" ? "#477553" : audit.tone === "rose" ? "var(--crimson-dark)" : "#98712B", background: audit.tone === "green" ? "var(--green)" : audit.tone === "rose" ? "var(--rose)" : "#F6EFDF", padding: "5px 8px", borderRadius: 3 }}>{audit.status}</div><div className="muted" style={{ fontSize: 10, marginTop: 6 }}>{audit.findings} findings</div></div></div>)}</div>
-            </section>
-
-            <div style={{ display: "grid", gap: 15 }}>
-              <section className="panel" style={{ padding: 21 }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Sparkles size={15} color="var(--crimson)" /><div className="eyebrow">GOVERNANCE PULSE</div></div><div className="editorial" style={{ fontSize: 23, lineHeight: 1.2, marginTop: 17 }}>Your brand is in good shape.</div><p className="muted" style={{ fontSize: 11, lineHeight: 1.7, marginTop: 9 }}>A few submissions need human review before they&apos;re ready to publish.</p><div style={{ marginTop: 18, height: 5, background: "var(--surface-muted)", borderRadius: 8, overflow: "hidden" }}><div style={{ width: "94.2%", height: "100%", background: "var(--crimson)" }} /></div><div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 10 }}><span className="muted">Governance score</span><strong>94.2%</strong></div></section>
-              <section className="panel" style={{ padding: 21 }}><div className="eyebrow">NEEDS YOUR ATTENTION</div><div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 17 }}><div style={{ width: 37, height: 37, display: "grid", placeItems: "center", background: "var(--rose)", color: "var(--crimson-dark)", borderRadius: 4 }}><Clock3 size={17} /></div><div><div className="editorial" style={{ fontSize: 27 }}>04</div><div className="muted" style={{ fontSize: 10 }}>Items awaiting approval</div></div></div><div style={{ borderTop: "1px solid var(--border)", marginTop: 17, paddingTop: 14, display: "flex", alignItems: "center", justifyContent: "space-between" }}><span className="muted" style={{ fontSize: 10 }}>2 high-priority reviews</span><a href="#" style={{ color: "var(--crimson-dark)", fontSize: 10, fontWeight: 650 }}>Review queue →</a></div></section>
-              <div className="muted" style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 10, padding: "2px 3px" }}><CircleHelp size={13} /> Findings require human review before approval.</div>
-            </div>
-          </div>
-          <div className="muted" style={{ fontSize: 10, marginTop: 25 }}>INKGUARD · Brand governance workspace <span style={{ margin: "0 6px" }}>·</span> Demo data — not connected to live API yet</div>
-        </div>
-      </main>
-    </div>
-  );
+export default function Home(){
+ const [workspace,setWorkspace]=useState<Workspace|null>(null),[analytics,setAnalytics]=useState<AnalyticsOverview|null>(null),[audits,setAudits]=useState<AuditRow[]>([]),[docs,setDocs]=useState<Document[]>([]);
+ const [view,setView]=useState<View>("overview"),[audit,setAudit]=useState<Audit|null>(null),[doc,setDoc]=useState<{filename?:string;extracted_text?:string}|null>(null),[events,setEvents]=useState<AuditEvent[]>([]);
+ const [rules,setRules]=useState<BrandRule[]>([]),[facts,setFacts]=useState<ApprovedFact[]>([]),[terms,setTerms]=useState<Terminology[]>([]);
+ const [busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[notice,setNotice]=useState("");
+ const [search,setSearch]=useState("");
+ const refresh=useCallback(async(wid:string)=>{const [a,b,c]=await Promise.all([api.analytics.overview(wid),api.audits.list(wid),api.documents.list(wid)]);setAnalytics(a);setAudits(b as AuditRow[]);setDocs(c);},[]);
+ const refreshBrand=useCallback(async(wid:string)=>{const [r,f,t]=await Promise.all([api.brand.rules(wid),api.brand.facts(wid),api.brand.terminology(wid)]);setRules(r as BrandRule[]);setFacts(f);setTerms(t);},[]);
+ useEffect(()=>{let live=true;(async()=>{try{const ws=await api.workspaces.list();const w=ws.find(x=>x.name.toLowerCase()==="velora")??ws[0];if(!w)throw new Error("No workspace found.");if(!live)return;setWorkspace(w);await Promise.all([refresh(w.id),refreshBrand(w.id)]);}catch(e){if(live)setNotice(message(e));}finally{if(live)setLoading(false);}})();return()=>{live=false;};},[refresh,refreshBrand]);
+ const openAudit=async(id:string)=>{setBusy(true);setNotice("");setView("audit");try{const a=await api.audits.get(id);const [d,h]=await Promise.all([api.documents.get(a.document_id),api.audits.events(id)]);setAudit(a);setDoc(d as {filename?:string;extracted_text?:string});setEvents(h);}catch(e){setNotice(message(e));}finally{setBusy(false);}};
+ const go=(v:View)=>{setView(v);setNotice("");};
+ const wid=workspace?.id;
+ const names=useMemo(()=>new Map(docs.map(d=>[d.id,d.filename])),[docs]);
+ const runUpload=async(file:File)=>{if(!wid)return;setBusy(true);try{const d=await api.documents.upload(wid,file,"submission");const a=await api.audits.create({workspace_id:wid,document_id:d.id});await refresh(wid);await openAudit(a.id);}catch(e){setNotice(message(e));}finally{setBusy(false);}};
+ const status=async(id:string,s:FindingStatus)=>{if(!audit)return;setBusy(true);try{setAudit(await api.findings.setStatus(id,s) as unknown as Audit);setAudit(await api.audits.get(audit.id));await refresh(audit.workspace_id);}catch(e){setNotice(message(e));}finally{setBusy(false);}};
+ const revise=async(content:string)=>{if(!audit)return;setBusy(true);try{await api.audits.createRevision(audit.id,{content,actor:"Workspace admin"});setAudit(await api.audits.reevaluate(audit.id));const d=await api.documents.get(audit.document_id);setDoc(d as {filename?:string;extracted_text?:string});setEvents(await api.audits.events(audit.id));await refresh(audit.workspace_id);setNotice("Revision saved and re-evaluated.");}catch(e){setNotice(message(e));}finally{setBusy(false);}};
+ const decide=async(decision:"approved"|"changes_requested",comment:string)=>{if(!audit)return;setBusy(true);try{setAudit(await api.audits.approve(audit.id,{decision,reviewer:"Workspace admin",comment}));await refresh(audit.workspace_id);setEvents(await api.audits.events(audit.id));setNotice("Decision recorded.");}catch(e){setNotice(message(e));}finally{setBusy(false);}};
+ const addRecord=async(kind:"rule"|"fact"|"term",v:Record<string,string|boolean>)=>{if(!wid)return;setBusy(true);try{if(kind==="rule")await api.brand.createRule({workspace_id:wid,title:String(v.title),description:String(v.description),category:String(v.category),severity:String(v.severity),verified:Boolean(v.verified)});if(kind==="fact")await api.brand.createFact({workspace_id:wid,subject:String(v.subject),attribute:String(v.attribute),approved_value:String(v.approved_value),unit:String(v.unit||"")||null,verified:Boolean(v.verified)});if(kind==="term")await api.brand.createTerm({workspace_id:wid,term:String(v.term),replacement:String(v.replacement||"")||null,term_type:String(v.term_type)});await refreshBrand(wid);setNotice("Brand record created.");}catch(e){setNotice(message(e));}finally{setBusy(false);}};
+ const title=nav.find(n=>n.id===view)?.label??(view==="audit"?"Audit review":view);
+ return <div className="min-h-screen" style={{display:"flex",background:"var(--background)",color:"var(--ink)"}}>
+ <aside className="app-sidebar" style={{width:252,minHeight:"100vh",flexShrink:0,padding:"27px 17px",background:"var(--surface)",borderRight:"1px solid var(--border)",display:"flex",flexDirection:"column"}}>
+ <div style={{padding:"0 10px 30px"}}><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:30,height:30,display:"grid",placeItems:"center",background:"var(--crimson)",color:"white",borderRadius:4}}><ShieldCheck size={18}/></div><b style={{fontSize:19,letterSpacing:".12em"}}>INKGUARD</b></div><div className="eyebrow" style={{margin:"9px 0 0 40px",fontSize:9}}>BRAND GOVERNANCE</div></div>
+ <div className="panel" style={{padding:11,display:"flex",gap:10,alignItems:"center",marginBottom:25}}><b style={{padding:8,background:"var(--rose)",color:"var(--crimson-dark)"}}>{workspace?.name.slice(0,1)??"V"}</b><div><b style={{fontSize:12}}>{workspace?.name??"Loading…"}</b><div className="muted" style={{fontSize:10}}>Workspace</div></div></div>
+ <div className="eyebrow" style={{padding:"0 10px",marginBottom:10}}>WORKSPACE</div><nav style={{display:"grid",gap:4}}>{nav.map(n=><button key={n.id} onClick={()=>go(n.id)} style={{display:"flex",gap:10,alignItems:"center",padding:"10px 11px",border:0,textAlign:"left",borderRadius:4,fontSize:12,cursor:"pointer",background:view===n.id?"var(--rose)":"transparent",color:view===n.id?"var(--crimson-dark)":"var(--muted)"}}><n.icon size={16}/>{n.label}{n.id==="approvals"&&analytics?.changes_requested?<small style={{marginLeft:"auto"}}>{analytics.changes_requested}</small>:null}</button>)}</nav>
+ <div className="eyebrow" style={{padding:"24px 10px 10px"}}>PREFERENCES</div>{[{id:"team" as View,label:"Team",icon:Users},{id:"settings" as View,label:"Settings",icon:Settings2}].map(n=><button key={n.id} onClick={()=>go(n.id)} style={{display:"flex",gap:10,padding:10,border:0,background:"transparent",color:"var(--muted)",fontSize:12,cursor:"pointer"}}><n.icon size={16}/>{n.label}</button>)}
+ <div style={{marginTop:"auto",borderTop:"1px solid var(--border)",padding:"16px 8px 0",fontSize:11}}>Workspace admin<div className="muted">{workspace?.name} team</div></div></aside>
+ <main style={{flex:1,minWidth:0}}><header style={{height:66,padding:"0 4.2%",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid var(--border)"}}><span className="muted" style={{fontSize:11}}>Workspace / <b style={{color:"var(--ink)"}}>{title}</b></span><button onClick={()=>wid&&Promise.all([refresh(wid),refreshBrand(wid)]).catch(e=>setNotice(message(e)))} style={secondary}><RefreshCw size={14}/>Refresh</button></header>
+ <div style={{maxWidth:1450,margin:"0 auto",padding:"38px 4.2% 60px"}}>{notice&&<div role="status" className="panel" style={{padding:12,marginBottom:15,fontSize:12,color:"var(--crimson-dark)"}}>{notice}</div>}{(loading||busy)&&<div className="muted" style={{fontSize:11,marginBottom:12,display:"flex",gap:7}}><Loader2 size={13}/>Working…</div>}
+ {view==="overview"&&<><Heading title="Brand governance." subtitle="Current state of your brand governance workspace."/><div className="stat-grid" style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:12,marginBottom:18}}>{[{k:"CONTENT AUDITED",v:analytics?.total_audits??"—"},{k:"NEEDS ATTENTION",v:analytics?.open_findings??"—"},{k:"AVERAGE COMPLIANCE",v:analytics?analytics.average_compliance_score+"%":"—"},{k:"APPROVED AUDITS",v:analytics?.approved_audits??"—"}].map(x=><div className="panel" key={x.k} style={{padding:18}}><div className="eyebrow">{x.k}</div><div className="editorial" style={{fontSize:32,marginTop:12}}>{x.v}</div></div>)}</div><button onClick={()=>go("submission")} style={primary}><FilePlus2 size={14}/>New submission</button><h2 className="editorial" style={{fontSize:22,margin:"24px 0 12px"}}>Recent audits</h2><div className="panel">{audits.slice(0,6).map(a=><AuditLine key={a.id} a={a} name={names.get(a.document_id)??"Submission"} open={()=>openAudit(a.id)}/>)}</div></>}
+ {view==="audits"&&<><Heading title="Content audits" subtitle="Search and inspect every submission in this workspace."/><input placeholder="Search filename or audit ID…" value={search} onChange={e=>setSearch(e.target.value)} style={input}/><div className="panel">{audits.filter(a=>(names.get(a.document_id)??"").toLowerCase().includes(search.toLowerCase())||a.id.includes(search)).map(a=><AuditLine key={a.id} a={a} name={names.get(a.document_id)??"Submission"} open={()=>openAudit(a.id)}/>)}</div></>}
+ {view==="submission"&&<><Heading title="New submission" subtitle="Upload a supported document and run a brand governance audit."/><form className="panel" style={{padding:22,maxWidth:700}} onSubmit={e=>{e.preventDefault();const f=(e.currentTarget.elements.namedItem("file") as HTMLInputElement).files?.[0];if(f)runUpload(f);}}><label style={label}>DOCUMENT · PDF, DOCX, TXT, MD, CSV, JSON</label><input required name="file" type="file" accept=".pdf,.docx,.txt,.md,.csv,.json" style={input}/><p className="muted" style={{fontSize:10}}>Maximum 15 MB. Scanned PDFs are not supported (no OCR).</p><button style={primary} disabled={busy}><Upload size={14}/>Upload & audit</button></form></>}
+ {view==="audit"&&<AuditScreen audit={audit} doc={doc} events={events} busy={busy} back={()=>go("audits")} status={status} revise={revise} decide={decide}/>}
+ {view==="brand"&&<BrandScreen rules={rules} facts={facts} terms={terms} add={addRecord} busy={busy}/>}
+ {view==="approvals"&&<><Heading title="Approval centre" subtitle="Open an audit to review its findings and record a human decision."/><div className="panel">{audits.filter(a=>a.status!=="approved").map(a=><AuditLine key={a.id} a={a} name={names.get(a.document_id)??"Submission"} open={()=>openAudit(a.id)}/>)}</div></>}
+ {view==="analytics"&&<><Heading title="Governance analytics" subtitle="Metrics calculated by the INKGUARD backend."/><div className="stat-grid" style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:12}}>{[{k:"Total audits",v:analytics?.total_audits},{k:"Total findings",v:analytics?.total_findings},{k:"Open findings",v:analytics?.open_findings},{k:"Approved",v:analytics?.approved_audits},{k:"Changes requested",v:analytics?.changes_requested},{k:"Average score",v:analytics?.average_compliance_score+"%"}].map(x=><div className="panel" key={x.k} style={{padding:18}}><div className="eyebrow">{x.k}</div><div className="editorial" style={{fontSize:28,marginTop:9}}>{x.v??"—"}</div></div>)}</div><div className="panel" style={{padding:20,marginTop:14}}><div className="editorial" style={{fontSize:20}}>Finding severity</div>{(["critical","high","medium","low"] as const).map(k=><p key={k} style={{fontSize:12}}>{k}: {analytics?.severity_breakdown[k]??0}</p>)}</div></>}
+ {(view==="team"||view==="settings")&&<><Heading title={view==="team"?"Team":"Settings"} subtitle="Not implemented in this MVP."/><div className="panel" style={{padding:20,fontSize:12}}>This feature has no backend endpoint or permission model yet. It is intentionally unavailable.</div></>}
+ <p className="muted" style={{fontSize:10,marginTop:25}}>INKGUARD · {workspace?.name} · Live API data</p></div></main></div>;
+}
+function Heading({title,subtitle}:{title:string;subtitle:string}){return <div style={{marginBottom:24}}><div className="eyebrow" style={{marginBottom:9}}>INKGUARD WORKSPACE</div><h1 className="editorial" style={{fontSize:"clamp(30px,4vw,44px)",margin:0}}>{title}</h1><p className="muted" style={{fontSize:12,marginTop:8}}>{subtitle}</p></div>;}
+function AuditLine({a,name,open}:{a:AuditRow;name:string;open:()=>void}){return <button onClick={open} style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"15px 18px",border:0,borderBottom:"1px solid var(--border)",background:"transparent",textAlign:"left",cursor:"pointer"}}><FileText size={17}/><span style={{flex:1,minWidth:0}}><b style={{fontSize:12,display:"block"}}>{name}</b><small className="muted">{a.id} · {dt(a.created_at)}</small></span><span style={{fontSize:11,textAlign:"right"}}><b>{a.compliance_score}%</b><small className="muted" style={{display:"block"}}>{a.finding_count} findings</small></span><ChevronRight size={14}/></button>;}
+function AuditScreen({audit,doc,events,busy,back,status,revise,decide}:{audit:Audit|null;doc:{filename?:string;extracted_text?:string}|null;events:AuditEvent[];busy:boolean;back:()=>void;status:(id:string,s:FindingStatus)=>void;revise:(c:string)=>void;decide:(d:"approved"|"changes_requested",c:string)=>void}){
+ const [content,setContent]=useState("");const [comment,setComment]=useState("");useEffect(()=>setContent(doc?.extracted_text??""),[doc?.extracted_text]);
+ if(!audit)return <><Heading title="Audit review" subtitle="Choose an audit from Content audits."/></>;
+ const locked=audit.approval?.decision==="approved";
+ return <><button onClick={back} style={secondary}><ArrowLeft size={14}/>Back to audits</button><Heading title={doc?.filename??"Audit report"} subtitle={audit.id+" · "+dt(audit.created_at)+" · "+audit.compliance_score+"% compliance"}/><div style={{display:"grid",gridTemplateColumns:"minmax(0,1.5fr) minmax(280px,.8fr)",gap:15}}><div><h2 className="editorial" style={{fontSize:21}}>Findings & evidence</h2>{audit.findings.map(f=><article key={f.id} className="panel" style={{padding:16,marginBottom:10}}><div className="eyebrow">{f.category} · {f.finding_type.replaceAll("_"," ")}</div><b style={{fontSize:12,color:"var(--crimson-dark)"}}>{f.severity.toUpperCase()} · {f.status}</b><blockquote style={{margin:"10px 0",padding:10,background:"var(--rose)",fontSize:12}}>{f.detected_text}</blockquote><p style={{fontSize:12,lineHeight:1.6}}>{f.explanation}</p><p className="muted" style={{fontSize:11}}>Suggestion: {f.suggestion}</p><div className="eyebrow">EVIDENCE</div>{f.evidence.length?f.evidence.map((e,i)=><p key={i} style={{fontSize:10}}>{e.source_type}: {e.source_text}</p>):<p className="muted" style={{fontSize:10}}>No approved source evidence attached. This flag is advisory, not proof of falsity.</p>}<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{(["resolved","accepted","dismissed","open"] as FindingStatus[]).map(s=><button key={s} disabled={busy||locked||f.status===s} onClick={()=>status(f.id,s)} style={secondary}>{s}</button>)}</div></article>)}{!audit.findings.length&&<div className="panel" style={{padding:18}}>No findings detected. This does not guarantee factual accuracy.</div>}</div><div style={{display:"grid",gap:12,alignContent:"start"}}><section className="panel" style={{padding:16}}><div className="eyebrow">CORRECTION STUDIO</div><textarea rows={12} value={content} onChange={e=>setContent(e.target.value)} disabled={locked||busy} style={{...input,marginTop:12,lineHeight:1.6}}/><button disabled={locked||busy||!content.trim()} onClick={()=>revise(content)} style={primary}><RefreshCw size={13}/>Save & re-evaluate</button></section><section className="panel" style={{padding:16}}><div className="eyebrow">HUMAN DECISION</div>{locked?<p style={{fontSize:12}}>Approved by {audit.approval?.reviewer}. Audit is immutable.</p>:<><textarea rows={3} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Reviewer comment (optional)" style={{...input,marginTop:12}}/><button disabled={busy||audit.findings.some(f=>f.status==="open")} onClick={()=>decide("approved",comment)} style={primary}>Approve audit</button><button disabled={busy} onClick={()=>decide("changes_requested",comment)} style={{...secondary,marginTop:8}}>Request changes</button>{audit.findings.some(f=>f.status==="open")&&<small className="muted">Resolve, accept or dismiss all open findings before approval.</small>}</>}</section><section className="panel" style={{padding:16}}><div className="eyebrow">AUDIT HISTORY</div>{events.slice(-8).reverse().map(e=><p key={e.id} style={{fontSize:10,borderBottom:"1px solid var(--border)",paddingBottom:7}}><b>{e.action}</b><br/><span className="muted">{e.actor} · {dt(e.created_at)}</span></p>)}</section></div></div></>;
+}
+function BrandScreen({rules,facts,terms,add,busy}:{rules:BrandRule[];facts:ApprovedFact[];terms:Terminology[];add:(k:"rule"|"fact"|"term",v:Record<string,string|boolean>)=>void;busy:boolean}){
+ const [tab,setTab]=useState<"rules"|"facts"|"terms">("rules");const [v,setV]=useState<Record<string,string|boolean>>({verified:true,category:"brand",severity:"high",term_type:"prohibited"});const set=(k:string,x:string|boolean)=>setV(p=>({...p,[k]:x}));
+ const fields=tab==="rules"?[["title","Rule title"],["description","Description"],["category","Category"],["severity","Severity"]]:tab==="facts"?[["subject","Subject / product"],["attribute","Attribute"],["approved_value","Approved value"],["unit","Unit"]]:[["term","Term"],["replacement","Replacement"],["term_type","Term type (prohibited/preferred)"]];
+ const items=tab==="rules"?rules:tab==="facts"?facts:terms;
+ return <><Heading title="Brand intelligence" subtitle="Manage the approved rules, facts and terminology used by audits."/><div style={{display:"flex",gap:7,marginBottom:14}}>{(["rules","facts","terms"] as const).map(t=><button key={t} onClick={()=>setTab(t)} style={tab===t?primary:secondary}>{t==="terms"?"Terminology":t}</button>)}</div><div style={{display:"grid",gridTemplateColumns:"minmax(0,1.2fr) minmax(270px,.8fr)",gap:14}}><div className="panel" style={{padding:17}}>{items.map((x,i)=><div key={("id" in x?x.id:i)} style={{padding:"10px 0",borderBottom:"1px solid var(--border)",fontSize:12}}><b>{tab==="rules"?(x as BrandRule).title:tab==="facts"?(x as ApprovedFact).subject+" — "+(x as ApprovedFact).attribute:(x as Terminology).term}</b><p className="muted" style={{fontSize:11}}>{tab==="rules"?(x as BrandRule).description:tab==="facts"?(x as ApprovedFact).approved_value+" "+((x as ApprovedFact).unit??""):(x as Terminology).term_type+" · "+((x as Terminology).replacement??"no replacement")}</p></div>)}{!items.length&&<p className="muted" style={{fontSize:12}}>No records yet.</p>}</div><form className="panel" style={{padding:17}} onSubmit={e=>{e.preventDefault();add(tab==="rules"?"rule":tab==="facts"?"fact":"term",v);}}><div className="eyebrow" style={{marginBottom:13}}>ADD {tab.toUpperCase().slice(0,-1)}</div>{fields.map(([k,l])=><label key={k} style={{display:"block",fontSize:10,color:"var(--muted)",marginBottom:4}}>{l.toUpperCase()}<input required={k!=="unit"&&k!=="replacement"} value={String(v[k]??"")} onChange={e=>set(k,e.target.value)} style={input}/></label>)}<label style={{fontSize:11,display:"flex",gap:7,marginBottom:12}}><input type="checkbox" checked={Boolean(v.verified)} onChange={e=>set("verified",e.target.checked)}/>Verified</label><button disabled={busy} style={primary}><Plus size={13}/>Create record</button></form></div></>;
 }
