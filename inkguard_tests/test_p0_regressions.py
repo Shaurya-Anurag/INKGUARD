@@ -132,3 +132,26 @@ def test_brand_records_support_update_delete_and_workspace_isolation(client):
     }).status_code == 404
     assert client.delete(f"/api/brand/terminology/{tid}").status_code == 204
     assert client.delete(f"/api/brand/terminology/{tid}").status_code == 404
+
+
+
+def test_numeric_fact_matches_product_heading_with_intervening_intro(client):
+    ws, _ = make_audit(client)
+    with main.SessionLocal() as db:
+        db.add(main.ApprovedFact(
+            workspace_id=ws["id"], subject="VELORA Vitamin C Serum",
+            attribute="Vitamin C concentration", approved_value="10", unit="%", verified=True
+        ))
+        db.commit()
+        findings = main.evaluate(
+            db, ws["id"],
+            "VELORA Vitamin C Serum\\n\\nMeet the next generation of skincare.\\n\\nOur advanced formula contains 20% Vitamin C."
+        )
+    assert any(x["finding_type"] == "fact_contradiction" for x in findings)
+
+
+def test_time_bound_claim_detects_just_three_days(client):
+    ws, _ = make_audit(client)
+    with main.SessionLocal() as db:
+        findings = main.evaluate(db, ws["id"], "It eliminates dark spots in just 3 days.")
+    assert any(x["finding_type"] == "time_bound_claim" for x in findings)
