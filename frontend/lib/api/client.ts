@@ -149,6 +149,12 @@ export const api = {
     createRule: (input: BrandRuleIn) =>
       request<unknown>("/api/brand/rules", json("POST", input)),
 
+    updateRule: (id: string, input: BrandRuleIn) =>
+      request<unknown>(`/api/brand/rules/${id}`, json("PUT", input)),
+
+    deleteRule: (id: string) =>
+      request<void>(`/api/brand/rules/${id}`, { method: "DELETE" }),
+
     facts: (workspaceId: string) =>
       request<ApprovedFact[]>("/api/brand/facts", {}, {
         workspace_id: workspaceId,
@@ -157,6 +163,12 @@ export const api = {
     createFact: (input: FactIn) =>
       request<ApprovedFact>("/api/brand/facts", json("POST", input)),
 
+    updateFact: (id: string, input: FactIn) =>
+      request<ApprovedFact>(`/api/brand/facts/${id}`, json("PUT", input)),
+
+    deleteFact: (id: string) =>
+      request<void>(`/api/brand/facts/${id}`, { method: "DELETE" }),
+
     terminology: (workspaceId: string) =>
       request<Terminology[]>("/api/brand/terminology", {}, {
         workspace_id: workspaceId,
@@ -164,6 +176,12 @@ export const api = {
 
     createTerm: (input: TermIn) =>
       request<Terminology>("/api/brand/terminology", json("POST", input)),
+
+    updateTerm: (id: string, input: TermIn) =>
+      request<Terminology>(`/api/brand/terminology/${id}`, json("PUT", input)),
+
+    deleteTerm: (id: string) =>
+      request<void>(`/api/brand/terminology/${id}`, { method: "DELETE" }),
   },
 
   audits: {
