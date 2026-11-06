@@ -279,21 +279,20 @@ def evaluate(db,wid,content):
             # If the exact wording is already covered by a prohibited brand term,
             # keep the policy finding as the single actionable item. This avoids
             # duplicate cards such as "miracle cure" + "cure".
-            covered_by_prohibited_term=any(
-                item["category"]=="terminology"
+            covering_term=next((
+                item for item in out
+                if item["category"]=="terminology"
                 and item["finding_type"]=="terminology_violation"
-                # Suppress a smaller generic claim token contained in a longer
-                # prohibited phrase, but let exact-span detectors merge so both
-                # policy checks remain visible in the explanation/evidence.
-                and (
-                    item["start_offset"] < m.start()
-                    or item["end_offset"] > m.end()
-                )
                 and item["start_offset"] <= m.start()
                 and item["end_offset"] >= m.end()
-                for item in out
-            )
-            if covered_by_prohibited_term:
+            ),None)
+            if covering_term:
+                # Keep one actionable finding when a prohibited phrase also
+                # triggers a generic claim detector. If spans are identical,
+                # retain both policy explanations on the same finding.
+                if covering_term["start_offset"]==m.start() and covering_term["end_offset"]==m.end():
+                    if why not in covering_term["explanation"]:
+                        covering_term["explanation"] += " " + why
                 continue
             out.append(dict(category="claims",finding_type=kind,severity="high",detected_text=m.group(),
               explanation=why+" This is a wording flag, not a determination that the claim is false.",
