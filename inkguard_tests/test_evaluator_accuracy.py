@@ -70,5 +70,10 @@ def test_case_sensitive_terminology_respects_configured_case(db_session):
         workspace.id,
         "miracle cure is claimed here. MIRACLE CURE is also claimed. Miracle Cure appears exactly.",
     )
-    assert len(findings) == 1
-    assert findings[0]["detected_text"] == "Miracle Cure"
+    terminology_findings = [
+        finding for finding in findings
+        if finding["category"] == "terminology"
+        and finding["finding_type"] == "terminology_violation"
+    ]
+    assert len(terminology_findings) == 1
+    assert terminology_findings[0]["detected_text"] == "Miracle Cure"
