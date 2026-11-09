@@ -50,3 +50,10 @@ Defaults and setup instructions are documented in the root README.
 ## Current limitations
 
 There is no authentication, authorization, production tenant isolation, OCR, migration framework or production object-storage integration. The application is a hackathon prototype, not a production security boundary.
+
+
+## Query efficiency
+
+Audit-list related data is loaded in batches to avoid N+1 database round trips. Analytics are computed with database-side grouped aggregates rather than loading all historical rows into application memory. The health endpoint executes a lightweight database probe and reports unavailable dependencies with HTTP 503.
+
+This is a query-path optimization, not a performance certification. Production latency still needs measurement under realistic data volume and deployment conditions.

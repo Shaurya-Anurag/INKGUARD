@@ -22,6 +22,7 @@ from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, String, Text, Integer, Float, Boolean, DateTime, ForeignKey, JSON, select, func
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker, Session
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./inkguard.db")
@@ -438,7 +439,13 @@ app.add_middleware(CORSMiddleware,allow_origins=origins,allow_credentials=True,a
 @app.get("/")
 def root(): return {"service":"INKGUARD API","version":"0.1.0","docs":"/docs"}
 @app.get("/api/health")
-def health(): return {"status":"ok","database":"configured"}
+def health(db:Session=Depends(db_session)):
+    """Report database connectivity, not merely the presence of a DATABASE_URL."""
+    try:
+        db.execute(select(1))
+    except SQLAlchemyError as exc:
+        raise HTTPException(503,"Database is unavailable.") from exc
+    return {"status":"ok","database":"connected"}
 
 @app.post("/api/workspaces",status_code=201)
 def create_workspace(p:WorkspaceIn,db:Session=Depends(db_session)):
@@ -620,16 +627,35 @@ def create_audit_endpoint(p:AuditIn,db:Session=Depends(db_session)):
     return audit_json(db,run_audit(db,p.workspace_id,d,d.extracted_text))
 @app.get("/api/audits")
 def list_audits(workspace_id:str,db:Session=Depends(db_session)):
-    workspace_or_404(db,workspace_id); rows=db.scalars(select(Audit).where(Audit.workspace_id==workspace_id).order_by(Audit.created_at.desc())).all()
-    result=[]
-    for a in rows:
-        approval=db.scalar(select(Approval).where(Approval.audit_id==a.id))
-        result.append({"id":a.id,"document_id":a.document_id,"status":a.status,
-          "approval_decision":approval.decision if approval else "pending",
-          "compliance_score":a.score,
-          "finding_count":db.scalar(select(func.count(Finding.id)).where(Finding.audit_id==a.id)) or 0,
-          "created_at":a.created_at.isoformat()})
-    return result
+    workspace_or_404(db,workspace_id)
+    rows=db.scalars(
+        select(Audit).where(Audit.workspace_id==workspace_id)
+        .order_by(Audit.created_at.desc())
+    ).all()
+    if not rows:
+        return []
+
+    # Fetch related aggregates in batches. The former per-audit lookups caused
+    # 2N additional database round trips on workspaces with many audits.
+    audit_ids=[a.id for a in rows]
+    approvals=db.scalars(select(Approval).where(Approval.audit_id.in_(audit_ids))).all()
+    approval_by_audit={item.audit_id:item.decision for item in approvals}
+    counts=db.execute(
+        select(Finding.audit_id,func.count(Finding.id))
+        .where(Finding.audit_id.in_(audit_ids))
+        .group_by(Finding.audit_id)
+    ).all()
+    findings_by_audit={audit_id:count for audit_id,count in counts}
+
+    return [{
+        "id":a.id,
+        "document_id":a.document_id,
+        "status":a.status,
+        "approval_decision":approval_by_audit.get(a.id,"pending"),
+        "compliance_score":a.score,
+        "finding_count":findings_by_audit.get(a.id,0),
+        "created_at":a.created_at.isoformat(),
+    } for a in rows]
 @app.get("/api/audits/{aid}")
 def get_audit(aid:str,db:Session=Depends(db_session)):
     a=db.get(Audit,aid)
@@ -710,13 +736,45 @@ def workspace_events(workspace_id:str,limit:int=Query(50,ge=1,le=200),db:Session
     return [{"id":e.id,"audit_id":e.audit_id,"actor":e.actor,"action":e.action,"details":e.details,"created_at":e.created_at.isoformat()} for e in rows]
 @app.get("/api/analytics/overview")
 def analytics(workspace_id:str,db:Session=Depends(db_session)):
-    workspace_or_404(db,workspace_id); audits=db.scalars(select(Audit).where(Audit.workspace_id==workspace_id)).all()
-    ids=[a.id for a in audits]
-    findings=db.scalars(select(Finding).where(Finding.audit_id.in_(ids))).all() if ids else []
-    approvals=db.scalars(select(Approval).where(Approval.audit_id.in_(ids))).all() if ids else []
-    return {"total_audits":len(audits),
-      "average_compliance_score":round(sum(a.score for a in audits)/len(audits),1) if audits else None,
-      "total_findings":len(findings),"open_findings":sum(f.status=="open" for f in findings),
-      "severity_breakdown":{s:sum(f.severity==s for f in findings) for s in ("critical","high","medium","low")},
-      "approved_audits":sum(x.decision=="approved" for x in approvals),
-      "changes_requested":sum(x.decision=="changes_requested" for x in approvals)}
+    workspace_or_404(db,workspace_id)
+
+    # Aggregate in the database instead of loading every audit, finding and
+    # approval row into Python. Response fields remain backward-compatible.
+    total_audits,average_score=db.execute(
+        select(func.count(Audit.id),func.avg(Audit.score))
+        .where(Audit.workspace_id==workspace_id)
+    ).one()
+
+    finding_groups=db.execute(
+        select(Finding.severity,Finding.status,func.count(Finding.id))
+        .join(Audit,Audit.id==Finding.audit_id)
+        .where(Audit.workspace_id==workspace_id)
+        .group_by(Finding.severity,Finding.status)
+    ).all()
+    severity_breakdown={s:0 for s in ("critical","high","medium","low")}
+    total_findings=0
+    open_findings=0
+    for severity,status,count in finding_groups:
+        total_findings+=count
+        if severity in severity_breakdown:
+            severity_breakdown[severity]+=count
+        if status=="open":
+            open_findings+=count
+
+    approval_groups=db.execute(
+        select(Approval.decision,func.count(Approval.id))
+        .join(Audit,Audit.id==Approval.audit_id)
+        .where(Audit.workspace_id==workspace_id)
+        .group_by(Approval.decision)
+    ).all()
+    approval_counts={decision:count for decision,count in approval_groups}
+
+    return {
+        "total_audits":total_audits,
+        "average_compliance_score":round(float(average_score),1) if average_score is not None else None,
+        "total_findings":total_findings,
+        "open_findings":open_findings,
+        "severity_breakdown":severity_breakdown,
+        "approved_audits":approval_counts.get("approved",0),
+        "changes_requested":approval_counts.get("changes_requested",0),
+    }

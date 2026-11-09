@@ -112,3 +112,10 @@ The running app's `/openapi.json` is the source of truth for request and respons
 - `inkguard_tests/` — backend regression and workflow tests.
 - `frontend/` — Next.js application and typed API client.
 - `docs/` — API and architecture notes.
+
+
+## Query efficiency
+
+Audit lists now load approval decisions and finding counts in batched queries rather than issuing per-audit lookups. Workspace analytics use database-side aggregates instead of loading every audit, finding and approval into application memory. The health endpoint performs a lightweight database connectivity check and returns HTTP 503 when the database cannot be reached.
+
+These changes reduce avoidable database round trips and application memory use; they do not replace production load testing or resolve latency caused by serverless cold starts, network distance, or external infrastructure.
